@@ -12,9 +12,9 @@ import random
 # =========================
 MODEL_NAME = "llama3.2:3b-instruct-q4_0" # Ensure you have this model
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OUTPUT_CSV = "E:\\Synthetic-Email-Generation-tool-main\\Candidate_application\\candidate_application.csv"
+OUTPUT_CSV = "E:\\Synthetic-Email-Generation-tool-main\\Candidate_application\\candidate_application1.csv"
 DEBUG_DIR = "E:\\Synthetic-Email-Generation-tool-main\\Candidate_application\\debug"
-LOG_FILE = "E:\\Synthetic-Email-Generation-tool-main\\Candidate_application\\candidate_application_history.log"  # <--- NEW LOG FILE
+LOG_FILE = "E:\\Synthetic-Email-Generation-tool-main\\Candidate_application\\candidate_application_history1.log"  # <--- NEW LOG FILE
 NUM_EMAILS = 500       
 DELAY_SECONDS = 0.1      
 MAX_RETRIES = 3          
@@ -73,15 +73,21 @@ Follow the exact format specified.
 BASE_USER_PROMPT = """Generate a realistic job application acknowledgment email sent FROM a company TO a candidate.
 This email is sent immediately after receiving a job application.
 
+CONTEXT:
+- The application is for a {role} position
+- The candidate described themselves as {adjective}
+
 REQUIREMENTS:
-- Invent realistic fictional names (candidate, company, HR representative)
-- Confirm receipt of the candidate’s application and resume
-- Mention that the application will be reviewed
-- Clearly state a response timeline of 3–5 business days
-- Professional, polite, neutral HR tone
+- Invent realistic fictional names for the candidate, company, and HR representative
+- The candidate name and HR representative name MUST be different in every email
+- Do NOT reuse the same HR name or candidate name across emails
+- Confirm receipt of the candidate's application and resume
+- Mention that the application is under review
+- Clearly state a response timeline of 3-5 business days
+- Professional, neutral, ATS-style tone
+- Short, realistic corporate email
 - No double quotes anywhere
 - Do NOT ask for interviews
-- Short and realistic corporate email
 - Professional closing
 
 CRITICAL:
@@ -90,21 +96,23 @@ CRITICAL:
 
 EXAMPLE OUTPUT:
 
-SUBJECT: Application Received – Alex Rivera
+SUBJECT: Application Received – Jordan Matthews | Data Analyst Role
 
 BODY:
-Dear Alex Rivera,
+Dear Jordan Matthews,
 
-Thank you for applying to the Software Engineer position at CloudNine Systems. We have successfully received your application and resume.
+Thank you for applying for the Data Analyst position at Vertex Solutions. We have successfully received your application and resume.
 
-Our hiring team is currently reviewing applications, and we will be in touch with you regarding next steps within the next 3 to 5 business days.
+Our hiring team is currently reviewing applications for this role. Based on your background as a detail-oriented professional, we will carefully evaluate your experience and qualifications.
 
-We appreciate your interest in joining CloudNine Systems.
+You can expect an update from our team within the next 3 to 5 business days.
+
+We appreciate your interest in joining Vertex Solutions.
 
 Kind regards,
-Sarah Johnson  
-HR Coordinator  
-CloudNine Systems
+Emily Carter  
+Talent Operations Specialist  
+Vertex Solutions
 
 TONE: Professional, courteous, and neutral
 
@@ -113,6 +121,7 @@ INTENT: Acknowledge receipt of job application
 END OF EXAMPLE.
 
 NOW GENERATE A NEW EMAIL.
+
 
 """
 
