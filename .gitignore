@@ -1,7 +1,13 @@
-*
-!.gitignore
-!*/
-!*/.py
-!*.ipynb 
-.venv
-/venv
+# *
+# !.gitignore
+# !*/
+# !*/.py
+# !*.ipynb 
+# .venv
+# /venv
+# /*.py
+.venv 
+*.csv
+*.log
+*/debug 
+*.json
