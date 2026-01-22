@@ -1,0 +1,300 @@
+import requests
+import json
+import os
+import time
+import re
+import csv
+import hashlib
+import random
+
+# =========================
+# CONFIGURATION
+# =========================
+MODEL_NAME = "llama3.2:3b-instruct-q4_0"  # Ensure you have this model
+OLLAMA_URL = "http://localhost:11434/api/generate"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+OUTPUT_CSV = os.path.join(BASE_DIR, "general_inquiry.csv")
+DEBUG_DIR  = os.path.join(BASE_DIR, "debug")
+LOG_FILE   = os.path.join(BASE_DIR, "general_inquiry_history.log")
+
+NUM_EMAILS = 700
+DELAY_SECONDS = 0.1
+MAX_RETRIES = 3
+
+# =========================
+# DYNAMIC VARIABLES
+# =========================
+ROLES = [
+    "Software Engineer", "Data Scientist", "Marketing Manager", "Sales Representative",
+    "Graphic Designer", "Nurse", "Project Manager", "Accountant", "Teacher", "Chef",
+    "Electrician", "Customer Support Agent", "HR Specialist", "Product Owner",
+    "Social Media Manager", "Financial Analyst", "Executive Assistant", "Mechanic",
+    "UX/UI Designer", "Operations Manager", "Copywriter", "Receptionist",
+    "Civil Engineer", "DevOps Specialist", "Cybersecurity Analyst", "Legal Secretary",
+    "Warehouse Supervisor", "Phlebotomist", "Paralegal", "Event Planner",
+    "Supply Chain Analyst", "Real Estate Agent", "Dental Hygienist", "Architect",
+    "Video Editor", "Content Strategist", "IT Support Technician", "Plumber",
+    "Bank Teller", "Pharmacist", "Data Entry Clerk", "SEO Specialist",
+    "Flight Attendant", "QA Tester", "Cloud Architect", "Business Analyst",
+    "Network Engineer", "Systems Administrator", "Office Manager", "Editor",
+    "Interior Designer", "Landscape Architect", "Sustainability Consultant",
+    "Truck Driver", "Security Guard", "Bartender", "Web Developer",
+    "Physical Therapist", "Occupational Therapist", "Speech Pathologist",
+    "Radiologic Technologist", "Case Manager", "Recruiter", "PR Specialist",
+    "Digital Marketer", "E-commerce Manager", "Mobile App Developer",
+    "Game Designer", "Animator", "Sound Engineer", "Translator",
+    "Database Administrator", "Machine Learning Engineer", "Actuary",
+    "Investment Banker", "Mortgage Broker", "Loan Officer", "Insurance Agent",
+    "Underwriter", "Safety Inspector", "Construction Foreman", "Welder",
+    "CNC Machinist", "HVAC Technician", "Automotive Technician", "Pilot",
+    "Logistician", "Brand Ambassador", "Museum Curator", "Librarian",
+    "Non-profit Coordinator", "Grant Writer", "Policy Analyst",
+    "Sociologist", "Urban Planner", "Flight Instructor", "Personal Trainer"
+]
+
+ADJECTIVES = [
+    "passionate", "experienced", "entry-level", "motivated", "detail-oriented",
+    "innovative", "dedicated", "strategic", "creative", "results-driven",
+    "enthusiastic", "highly-organized", "resourceful", "proactive",
+    "technically-proficient", "adaptable", "hard-working", "analytical",
+    "collaborative", "forward-thinking", "self-motivated", "disciplined",
+    "client-focused", "versatile", "methodical", "ambitious", "reliable",
+    "dynamic", "energetic", "articulate", "knowledgeable", "empathetic",
+    "diligent", "professional", "resilient", "determined", "skilled",
+    "qualified", "fast-learning", "independent"
+]
+
+INQUIRY_TOPICS = [
+    "job location and work mode (remote/hybrid/onsite)",
+    "salary range and compensation structure",
+    "interview process and number of rounds",
+    "expected joining timeline",
+    "notice period flexibility",
+    "required documents for application",
+    "application status update",
+    "role responsibilities and tech stack",
+    "company benefits and leave policy",
+    "interview rescheduling request",
+    "eligibility criteria and experience requirement",
+    "bond/contract policy clarification"
+]
+
+# =========================
+# PROMPTS
+# =========================
+SYSTEM_PROMPT = """You are an HR email generator. You MUST output ONLY the four fields: SUBJECT, BODY, TONE, INTENT.
+Do not add explanations, preambles, markdown, or extra text.
+Follow the exact format specified.
+"""
+
+BASE_USER_PROMPT = """Generate a realistic general inquiry email conversation sent FROM HR or a recruitment team TO a candidate.
+This email is a response to a candidate's general enquiry regarding the hiring process or role details.
+
+CONTEXT:
+- The role discussed is {role}
+- The candidate described themselves as {adjective}
+- The candidate enquiry topic is: {topic}
+
+REQUIREMENTS:
+- Invent realistic fictional names for the candidate, company, and recruiter/HR representative
+- The candidate name and recruiter/HR representative name MUST be different in every email
+- Do NOT reuse the same recruiter or candidate name across emails
+- The email must politely answer the candidate's enquiry in a realistic corporate way
+- Do NOT promise selection or offer confirmation
+- If details are not finalized, say it will be shared once confirmed
+- Professional, helpful, ATS-style tone
+- Short, realistic corporate email
+- No double quotes anywhere
+- Professional closing
+
+CRITICAL:
+- You MUST output ONLY the four fields shown below
+- Use the EXACT same format and field order as the example
+
+EXAMPLE OUTPUT:
+
+SUBJECT: Re: Inquiry Regarding Interview Process | Business Analyst Role
+
+BODY:
+Dear Mehul Sharma,
+
+Thank you for reaching out with your query regarding the interview process for the Business Analyst role at BluePeak Solutions.
+
+The interview process typically includes an initial screening round followed by 2 technical discussions and a final HR round. The exact number of rounds may vary slightly depending on the hiring team's requirements.
+
+We will keep you updated with the next steps once your profile review is completed. Please feel free to reach out if you have any further questions.
+
+Kind regards,
+Ananya Iyer  
+Talent Acquisition Executive  
+BluePeak Solutions
+
+TONE: Professional, helpful, and polite
+
+INTENT: Respond to candidate general enquiry and provide clarification on hiring process details
+
+END OF EXAMPLE.
+
+NOW GENERATE A NEW EMAIL.
+
+
+
+
+"""
+
+# =========================
+# SETUP
+# =========================
+os.makedirs(DEBUG_DIR, exist_ok=True)
+
+# Initialize CSV with headers if it doesn't exist
+if not os.path.exists(OUTPUT_CSV):
+    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["id", "subject", "body", "tone", "intent"])
+        writer.writeheader()
+
+# Load existing hashes to avoid duplicates
+seen_hashes = set()
+start_id = 1
+
+if os.path.exists(OUTPUT_CSV):
+    with open(OUTPUT_CSV, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        start_id = len(rows) + 1
+        for row in rows:
+            if "body" in row and row["body"]:
+                h = hashlib.md5(row["body"].encode('utf-8')).hexdigest()
+                seen_hashes.add(h)
+
+print(f"RESUMING from ID {start_id} (Loaded {len(seen_hashes)} existing unique emails)")
+
+# =========================
+# HELPER FUNCTIONS
+# =========================
+def log_event(message):
+    """Logs success/fail events to a text file with timestamp."""
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {message}\n")
+    except Exception as e:
+        print(f"Logging error: {e}")
+
+def call_ollama(prompt, system):
+    payload = {
+        "model": MODEL_NAME,
+        "system": system,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.8,
+            "top_p": 0.9,
+        }
+    }
+    try:
+        response = requests.post(OLLAMA_URL, json=payload, timeout=40)
+        response.raise_for_status()
+        return response.json()["response"]
+    except Exception as e:
+        print(f"    API Error: {e}")
+        return None
+
+def parse_email(text):
+    text = text.strip()
+    # Robust Regex Pattern
+    pattern = r'SUBJECT:\s*(.+?)\s+BODY:\s*(.+?)\s+TONE:\s*(.+?)\s+INTENT:\s*(.+?)(?:\s*)$'
+    match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+
+    if match:
+        return {
+            "subject": match.group(1).strip(),
+            "body": match.group(2).strip(),
+            "tone": match.group(3).strip(),
+            "intent": match.group(4).strip()
+        }
+    return None
+
+# =========================
+# MAIN LOOP
+# =========================
+current_id = start_id
+total_success = 0
+
+print(f"Starting generation of {NUM_EMAILS} emails...")
+print(f"Saving data to: {OUTPUT_CSV}")
+print(f"Saving logs to: {LOG_FILE}")
+print("-" * 50)
+
+log_event(f"--- STARTING SCRIPT SESSION FROM ID {current_id} ---")
+
+while current_id <= NUM_EMAILS:
+
+    # Optional Manual Stop Check
+    if os.path.exists("stop.txt"):
+        print("\n🛑 Stop file detected. Closing safely...")
+        log_event("MANUAL STOP: stop.txt detected.")
+        break
+
+    print(f"Generating ID {current_id}/{NUM_EMAILS}...", end="", flush=True)
+
+    # Randomize Prompt
+    role = random.choice(ROLES)
+    adj = random.choice(ADJECTIVES)
+    topic = random.choice(INQUIRY_TOPICS)
+
+    current_prompt = BASE_USER_PROMPT.format(role=role, adjective=adj, topic=topic)
+
+    success = False
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        raw_output = call_ollama(current_prompt, SYSTEM_PROMPT)
+
+        if not raw_output:
+            continue
+
+        email_data = parse_email(raw_output)
+
+        if email_data:
+            # Check duplicates
+            body_hash = hashlib.md5(email_data["body"].encode('utf-8')).hexdigest()
+
+            if body_hash in seen_hashes:
+                print(f" [Duplicate detected] ", end="", flush=True)
+                continue
+
+            # SUCCESS
+            email_data["id"] = current_id
+            seen_hashes.add(body_hash)
+
+            # Save to CSV
+            with open(OUTPUT_CSV, "a", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=["id", "subject", "body", "tone", "intent"])
+                writer.writerow(email_data)
+
+            # Log Success
+            log_event(f"SUCCESS: Email ID {current_id} saved. (Role: {role})")
+
+            print(" ✅ Saved")
+            current_id += 1
+            total_success += 1
+            success = True
+            break
+        else:
+            # Save debug file on failure
+            with open(os.path.join(DEBUG_DIR, f"fail_{current_id}_att{attempt}.txt"), "w", encoding="utf-8") as f:
+                f.write(raw_output)
+            print(f" ⚠ Parse Fail", end="", flush=True)
+
+    if not success:
+        # Log Failure
+        log_event(f"SKIPPED: Email ID {current_id} failed after {MAX_RETRIES} attempts.")
+        print(" ❌ Failed 3 attempts (skipping ID)")
+        current_id += 1
+
+    time.sleep(DELAY_SECONDS)
+
+print("=" * 50)
+print(f"Job Complete/Stopped. Generated {total_success} new unique emails.")
+log_event(f"--- SCRIPT STOPPED. TOTAL NEW EMAILS: {total_success} ---")
